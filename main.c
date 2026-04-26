@@ -1,5 +1,5 @@
 
- /* USER CODE BEGIN Header */
+/* USER CODE BEGIN Header */
 /**
   ******************************************************************************
   * @file           : main.c
@@ -23,7 +23,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
-
+#include <stdlib.h>
+#include <string.h> //New implementation to use the USART
+#include <stdarg.h> //Implementation to use variadic functions
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -71,6 +73,7 @@ volatile char medida_ok=0;
 volatile char echo_start=0;//Estado inicial
 volatile char posicion_servo=0;
 
+volatile int distancias_auto[5]; //To store the measurements in the automatic mode
 
 /* USER CODE END PV */
 
@@ -104,255 +107,304 @@ void resultado_medidas_LED(void);
 
 void posicion_servo_auto(void);
 
+void uart_print(const char *format, ...);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-int _write(int file, char *ptr, int len) {
+//We comment this function, previously used to send the printf content from the microcontroller to the console through the USART
+/*int _write(int file, char *ptr, int len) {
 int i=0;
 for(i=0; i<len; i++)
 HAL_UART_Transmit(&huart2,(uint8_t *)ptr++,1,1000);
 return len;
 }
+*/
+
+//New function used to send the messages through the usart without using printf
+void uart_print(const char *format, ...) {
+    char tx_buffer[100]; //buffer array
+
+    //just the regular structure for variadic functions
+    va_list args;
+    va_start(args, format);
+    vsprintf(tx_buffer, format, args); //This function is used to store strings, however, by using it inside a variadic function, the extra arguments are for the format of different numbers such as decimals, integers, etc
+    va_end(args);
+
+    HAL_UART_Transmit(&huart2, (uint8_t *)tx_buffer, strlen(tx_buffer), 100);
+}
 
 void led_verde_on(void){
-	GPIOA->BSRR |= (1<<5);
+  GPIOA->BSRR |= (1<<5);
 }
 
 void led_verde_off(void){
-	GPIOA->BSRR |= (1<<21);
+  GPIOA->BSRR |= (1<<21);
 }
 
 void led_rojo_on(void){
-	GPIOB->BSRR |= (1<<5);
+  GPIOB->BSRR |= (1<<5);
 }
 
 void led_rojo_off(void){
-	GPIOB->BSRR |= (1<<21);
+  GPIOB->BSRR |= (1<<21);
 }
 
 void trigger_on(void){
-	GPIOC->BSRR |= (1<<8);
+  GPIOC->BSRR |= (1<<8);
 }
 
 void trigger_off(void){
-	GPIOC->BSRR |= (1<<24);
+  GPIOC->BSRR |= (1<<24);
 }
 
 void all_leds_on(void){
-	GPIOC->BSRR |= 31;
+  GPIOC->BSRR |= 31;
 }
 
 void all_leds_off(void){
-	GPIOC->BSRR |= (31<<16);
+  GPIOC->BSRR |= (31<<16);
 }
 
 void posicion_servo_auto(void){
 
-	if(counter_medidas==0)
-		TIM2->CCR1=500;
+  if(counter_medidas==0)
+    TIM2->CCR1=500;
 
-	else if(counter_medidas==1)
-		TIM2->CCR1=975;
+  else if(counter_medidas==1)
+    TIM2->CCR1=975;
 
-	else if(counter_medidas==2)
-		TIM2->CCR1=1450;
+  else if(counter_medidas==2)
+    TIM2->CCR1=1450;
 
-	else if(counter_medidas==3)
-		TIM2->CCR1=1925;
+  else if(counter_medidas==3)
+    TIM2->CCR1=1925;
 
-	else if(counter_medidas==4)
-		TIM2->CCR1=2400;
+  else if(counter_medidas==4)
+    TIM2->CCR1=2400;
 
 }
 
 void EXTI15_10_IRQHandler(void){
 
-	if((EXTI->PR &(1<<13))!=0){
-			change_mode=1;
+  if((EXTI->PR &(1<<13))!=0){
+      change_mode=1;
 
-		EXTI->PR |= (1<<13);
-	}
+    EXTI->PR |= (1<<13);
+  }
 
 }
 
 void EXTI4_IRQHandler(void){
 
-	if((EXTI->PR & (1<<4))!=0){
-		pulsador_2=1;
+  if((EXTI->PR & (1<<4))!=0){
+    pulsador_2=1;
 
-		if((mode==AUTOMATICO) && ((counter_medidas >= 5)||(counter_medidas < 0)))
-			counter_medidas=0;
+    if((mode==AUTOMATICO) && ((counter_medidas >= 5)||(counter_medidas < 0)))
+      counter_medidas=0;
 
-		if(mode==MANUAL){
-			trigger_on(); //Activamos el voltaje en el trigger
-			TIM3->CR1 |= 1; //Inicia el contador del sensor.
-		}
+    if(mode==MANUAL){
+      trigger_on(); //Activamos el voltaje en el trigger
+      TIM3->CR1 |= 1; //Inicia el contador del sensor.
+    }
 
-		EXTI->PR |= (1<<4);
-	}
+    EXTI->PR |= (1<<4);
+  }
 
 }
 
 void ADC1_IRQHandler(void){
 
-	if((ADC1->SR & 2)!=0){
-		current_voltage= ADC1->DR;
-		ADC1->SR &= ~2;
-	}
+  if((ADC1->SR & 2)!=0){
+    current_voltage= ADC1->DR;
+    ADC1->SR &= ~2;
+  }
 
 }
 
 
 void TIM4_IRQHandler(void){
 
-	if((TIM4->SR & (1<<2))!=0){
+  if((TIM4->SR & (1<<2))!=0){
 
-		if(mode==MANUAL){
-			TIM4->CR1 &= ~(1); //Paramos el contador
-			TIM4->CNT=0; //Reseteamos el CNT
-		}
+    if(mode==MANUAL){
+      TIM4->CR1 &= ~(1); //Paramos el contador
+      TIM4->CNT=0; //Reseteamos el CNT
+    }
 
-		led_rojo_off();
+    led_rojo_off();
 
-		if(mode==AUTOMATICO){
-			trigger_on(); //Activamos el voltaje en el trigger
-			TIM3->CR1 |= 1;//Inicia el contador del sensor.
-		}
+    if(mode==AUTOMATICO){
+      trigger_on(); //Activamos el voltaje en el trigger
+      TIM3->CR1 |= 1;//Inicia el contador del sensor.
+    }
 
-		TIM4->SR &= ~(1<<2); //Limpiamos el flag
-	}
+    TIM4->SR &= ~(1<<2); //Limpiamos el flag
+  }
 
-	if((TIM4->SR & 2)!=0){
-		TIM4->CR1 &= ~(1); //Paramos el contador
-		TIM4->CNT=0; //Reseteamos el CNT
-		TIM4->SR &= ~(2); //Limpiamos el flag
-	}
+  if((TIM4->SR & 2)!=0){
+    TIM4->CR1 &= ~(1); //Paramos el contador
+    TIM4->CNT=0; //Reseteamos el CNT
+    TIM4->SR &= ~(2); //Limpiamos el flag
+  }
 }
 
 void TIM3_IRQHandler(void){
 
-	if((TIM3->SR & 2)!=0){ //Si la interrupcion se debe al canal 1 (han pasado 10µs)
-		trigger_off();
-		echo_start=1;// Indica que el sensor va a lanzar losw pulsos de sonido
-		TIM3->SR &= ~(2); //Limpiamos el flag
-	}
+  if((TIM3->SR & 2)!=0){ //Si la interrupcion se debe al canal 1 (han pasado 10µs)
+    trigger_off();
+    echo_start=1;// Indica que el sensor va a lanzar lso pulsos de sonido
+    TIM3->SR &= ~(2); //Limpiamos el flag
+  }
 
-	else if((TIM3->SR & (1<<4))!=0){//Si la interrupcion se debe al canal 4 (el ECHO cambia de estado)
+  else if((TIM3->SR & (1<<4))!=0){//Si la interrupcion se debe al canal 4 (el ECHO cambia de estado)
 
-		if(echo_start==1){//Si esta a 1 es que la interrupción se debe a que el ECHO se ha puesto a 1 (a lanzado el sonido)
-		echo_start=2; //Que esté a 2 implica que el sonido esta viajando
-			tiempo_salida=TIM3->CCR4;
-		}
-		else if(echo_start==2){ //Si esta a 2 implica que la interrupcion se debe a que el ECHO a pasado a 0 (el sonido a rebotado y llegado al sensor)
-			TIM3->CR1 &= ~(1); //En cuanto el sonido llegue de nuevo al sensor paramos el contador y reseteamos el CNT
-			TIM3->CNT=0;
-			tiempo_llegada=TIM3->CCR4;
-			medida_ok=1;
-		}
+    if(echo_start==1){//Si esta a 1 es que la interrupción se debe a que el ECHO se ha puesto a 1 (a lanzado el sonido)
+      echo_start=2; //Que esté a 2 implica que el sonido esta viajando
+      tiempo_salida=TIM3->CCR4;
+    }
+    else if(echo_start==2){ //Si esta a 2 implica que la interrupcion se debe a que el ECHO a pasado a 0 (el sonido a rebotado y llegado al sensor)
+      TIM3->CR1 &= ~(1); //En cuanto el sonido llegue de nuevo al sensor paramos el contador y reseteamos el CNT
+      TIM3->CNT=0;
+      tiempo_llegada=TIM3->CCR4;
+      medida_ok=1;
+    }
 
-		TIM3->SR &= ~(1<<4);
-	}
+    TIM3->SR &= ~(1<<4);
+  }
 }
 
 void medir_distancia_auto(void){
 
-	if((TIM4->CR1 & 1)==0){
+  if((TIM4->CR1 & 1)==0){
 
-		TIM4->CR1 |= 1; //Inicia el contador de 2s para una medida
-		led_rojo_on();
-		posicion_servo_auto();
-		counter_medidas++;
+    TIM4->CR1 |= 1; //Inicia el contador de 2s para una medida
+    led_rojo_on();
+    posicion_servo_auto();
+    counter_medidas++;
 
-	}
+  }
 
 }
 
 void medir_posicion(void){
 
-	int current_position= ((uint32_t)current_voltage*180)/4095;
+  int current_position= ((uint32_t)current_voltage*180)/4095;
 
-	if(abs(current_position - last_position) > RANGE){
+  if(abs(current_position - last_position) > RANGE){
 
-		if(current_position >= 175)
-			position= 180;
+    if(current_position >= 175)
+      position= 180;
 
-		else if(current_position <= 6)
-			position=0;
+    else if(current_position <= 6)
+      position=0;
 
-		else
-			position=current_position;
+    else
+      position=current_position;
 
-		last_position = current_position;
+    last_position = current_position;
 
-		TIM2->CCR1=500 + (position*1900)/180; /* Factor de conversion de grados a tiempo para el servomotor,
+    TIM2->CCR1=500 + (position*1900)/180; /* Factor de conversion de grados a tiempo para el servomotor,
 
-		los 500µs son el offset ya que para el servo 0º son 500µs de Duty Cycle*/
+    los 500µs son el offset ya que para el servo 0º son 500µs de Duty Cycle*/
 
-		counter=0;
+    counter=0;
 
-	}
+  }
 
-	else{
+  else{
 
-		if(counter < STOP_WAITING)
+    if(counter < STOP_WAITING)
 
-			counter++;
+      counter++;
 
-		if(counter == STOP_WAITING ){ //Cuando se hayan pasado 45000 iteraciones y el voltaje no haya variado, entonces imprimimos los datos
-			printf("POSITION= %d\r\n",position);
-			counter++;
-		}
+    if(counter == STOP_WAITING ){ //Cuando se hayan pasado 45000 iteraciones y el voltaje no haya variado, entonces imprimimos los datos
+      uart_print("POSITION= %d\r\n", position);
+      counter++;
+    }
 
-	}
+  }
 
 }
 
 void medir_distancia_manual(void){
 
-	led_rojo_on();
-	pulsador_2=0;
-	TIM4->CR1 |= 1; //Inicia el contador de encendido del LED
+  led_rojo_on();
+  pulsador_2=0;
+  TIM4->CR1 |= 1; //Inicia el contador de encendido del LED
 }
 
 void conversor_tiempo_distancia(void){
 
-	if(medida_ok==1){
-		distancia_objeto = (int)(((tiempo_llegada-tiempo_salida)/2)*SOUND_SPEED);
-		if(mode==MANUAL)
-			printf("> Modo manual -> distancia: %d cm\r\n",distancia_objeto);
+  // SOLO hacemos cosas si el sonido ha vuelto con éxito
+  if(medida_ok == 1){
 
-		else if(mode==AUTOMATICO)
-			printf("> Modo automatico -> distancia: %d cm\r\n",distancia_objeto);
-	}
+    distancia_objeto = (int)(((tiempo_llegada - tiempo_salida)/2) * SOUND_SPEED);
+
+    if(mode == MANUAL){
+      uart_print("> Modo manual -> distancia: %d cm\r\n", distancia_objeto);
+    }
+    else if(mode == AUTOMATICO) {
+      if (counter_medidas > 0 && counter_medidas <= 5) {
+        distancias_auto[counter_medidas - 1] = distancia_objeto;
+      }
+    }
+  }
+
+  // Hacemos un if a parte para manejar el texto que se imprima en el modo automatico
+  //Se pone como condicion que se haya detenido el timer para que no haya race conditions
+  //En caso de no haberse tomado una de las medidas, se imprimira "ERROR en esa posicion del array en vez de no imprimirse el array como en los laboratorios anteriores
+  if (mode == AUTOMATICO && counter_medidas == 5 && (TIM4->CR1 & 1) == 0) {
+
+    uart_print("> Modo automatico -> distancia: [");
+
+    if(distancias_auto[0] == -1) uart_print("ERROR, ");
+    else uart_print("%d, ", distancias_auto[0]);
+
+    if(distancias_auto[1] == -1) uart_print("ERROR, ");
+    else uart_print("%d, ", distancias_auto[1]);
+
+    if(distancias_auto[2] == -1) uart_print("ERROR, ");
+    else uart_print("%d, ", distancias_auto[2]);
+
+    if(distancias_auto[3] == -1) uart_print("ERROR, ");
+    else uart_print("%d, ", distancias_auto[3]);
+
+    if(distancias_auto[4] == -1) uart_print("ERROR");
+    else uart_print("%d", distancias_auto[4]);
+
+    uart_print("] cm\r\n");
+
+    counter_medidas = -1;
+  }
 }
 
 void resultado_medidas_LED(void){
 
-	if(medida_ok==1){
-		medida_ok=0;
-		all_leds_off();
+  if(medida_ok==1){
+    medida_ok=0;
+    all_leds_off();
 
-		if((distancia_objeto >= 60)&&(distancia_objeto < 80))
-			GPIOC->BSRR |= 1;
+    if((distancia_objeto >= 60)&&(distancia_objeto < 80))
+      GPIOC->BSRR |= 1;
 
-		else if((distancia_objeto >= 40)&&(distancia_objeto < 60))
-			GPIOC->BSRR |= 3;
+    else if((distancia_objeto >= 40)&&(distancia_objeto < 60))
+      GPIOC->BSRR |= 3;
 
-		else if((distancia_objeto >= 20)&&(distancia_objeto < 40))
-			GPIOC->BSRR |= 7;
+    else if((distancia_objeto >= 20)&&(distancia_objeto < 40))
+      GPIOC->BSRR |= 7;
 
-		else if((distancia_objeto >= 10)&&(distancia_objeto < 20))
-			GPIOC->BSRR |= 15;
+    else if((distancia_objeto >= 10)&&(distancia_objeto < 20))
+      GPIOC->BSRR |= 15;
 
-		else if(distancia_objeto < 10)
-			all_leds_on();
+    else if(distancia_objeto < 10)
+      all_leds_on();
 
-	}
+  }
 
 }
-
 
 /* USER CODE END 0 */
 
@@ -512,60 +564,60 @@ int main(void)
 
    //Configuracion del TIM4 para los segundos que tarda en cada medida del modo automático y para el medio segundo del led "midiendo distancia":
 
-	TIM4->CR1=0;
-	TIM4->CR2=0;
-	TIM4->SMCR=0;
+  TIM4->CR1=0;
+  TIM4->CR2=0;
+  TIM4->SMCR=0;
 
-	TIM4->CNT=0;
-	TIM4->PSC=31999; //Preescalado
-	TIM4->ARR=65535; //Limite del CNT
-	TIM4->CCR1=2000; //Salta la interrupción cuando CNT==CCR1 (2000 ms <=> 2 s)
-	TIM4->CCR2 = 500; //Salta la interrupción cuando CNT==CCR2 (500 ms <=> 0.5 s)
+  TIM4->CNT=0;
+  TIM4->PSC=31999; //Preescalado
+  TIM4->ARR=65535; //Limite del CNT
+  TIM4->CCR1=2000; //Salta la interrupción cuando CNT==CCR1 (2000 ms <=> 2 s)
+  TIM4->CCR2 = 500; //Salta la interrupción cuando CNT==CCR2 (500 ms <=> 0.5 s)
 
-	TIM4->DIER= 2|(1 << 2);  //Habilitamos la interrupcion para el canal 1 y 2
+  TIM4->DIER= 2|(1 << 2);  //Habilitamos la interrupcion para el canal 1 y 2
 
-	TIM4->CCMR1 &= ~3; //Configuramos el canal 1 y 2 en modo Output Compare
-	TIM4->CCMR1 &= ~(3 << 8);
+  TIM4->CCMR1 &= ~3; //Configuramos el canal 1 y 2 en modo Output Compare
+  TIM4->CCMR1 &= ~(3 << 8);
 
-	TIM4->EGR|=1;
-	TIM4->SR=0;
+  TIM4->EGR|=1;
+  TIM4->SR=0;
 
-	//Configuracion de los timers para el trigger y el echo del sensor de ultrasonidos:
+  //Configuracion de los timers para el trigger y el echo del sensor de ultrasonidos:
 
-	TIM3->CR1=0;
-	TIM3->CR2=0;
-	TIM3->SMCR=0;
+  TIM3->CR1=0;
+  TIM3->CR2=0;
+  TIM3->SMCR=0;
 
-	TIM3->CNT=0;
-	TIM3->PSC=31; // Como queremos contar cada 1µs hasta los 10µs
-	TIM3->ARR=65535;
-	TIM3->CCR1=10; //La interrupcion del canal 1 se activa cuando CNT llega a los 10µs
+  TIM3->CNT=0;
+  TIM3->PSC=31; // Como queremos contar cada 1µs hasta los 10µs
+  TIM3->ARR=65535;
+  TIM3->CCR1=10; //La interrupcion del canal 1 se activa cuando CNT llega a los 10µs
 
-	//Configuramos ahora el canal 1 del TIM3 en TOC para que nos avise cuando CNT llegue a CCR1 (10µs):
-	TIM3->CCMR1 &= ~(3);
+  //Configuramos ahora el canal 1 del TIM3 en TOC para que nos avise cuando CNT llegue a CCR1 (10µs):
+  TIM3->CCMR1 &= ~(3);
 
-	/* Configuramos el canal 4 en modo Input Compare (TIC) de modo que cuando ECHO cambie de estado el CCR4
- 	 se actualizará al valor de CNT que tenga cuando ocurra el evento:
-	*/
-	TIM3->CCMR2 &= ~(1<<9);
-	TIM3->CCMR2 |= (1<<8);
-	TIM3->CCMR2 &= ~(15<<11); // OC4M y OC4PE a 0
+  /* Configuramos el canal 4 en modo Input Compare (TIC) de modo que cuando ECHO cambie de estado el CCR4
+   se actualizará al valor de CNT que tenga cuando ocurra el evento:
+  */
+  TIM3->CCMR2 &= ~(1<<9);
+  TIM3->CCMR2 |= (1<<8);
+  TIM3->CCMR2 &= ~(15<<11); // OC4M y OC4PE a 0
 
-	//Seleccionamos el flanco de bajada y de subida en el CCER (CC4P a 1 y CC4NP a 1)
-	TIM3->CCER |= (1<<13);
-	TIM3->CCER |= (1<<15);
-	TIM3->CCER |=(1<<12);
+  //Seleccionamos el flanco de bajada y de subida en el CCER (CC4P a 1 y CC4NP a 1)
+  TIM3->CCER |= (1<<13);
+  TIM3->CCER |= (1<<15);
+  TIM3->CCER |=(1<<12);
 
-	TIM3->DIER |= 2; //Habilitamos la interrupción del canal 1
-	TIM3->DIER |= (1<<4);
+  TIM3->DIER |= 2; //Habilitamos la interrupción del canal 1
+  TIM3->DIER |= (1<<4);
 
   //Ahora hay que configurar las NVICs para todas las interrupciones:
 
-	NVIC->ISER[1]|= (1<<8);  // NVIC para la interrupcion habilitada por el PC13.
-	NVIC->ISER[0]|= (1<<10); //NVIC para la interrupcion habilitada por PB4.
-	NVIC->ISER[0]|= (1<<18); //NVIC para la interrupcion habilitada por el EOCIE.
-	NVIC->ISER[0]|= (1<<29); //NVIC de la interrupcion habilitada por el TIM3->DIER
-	NVIC->ISER[0]|= (1<<30); //NVIC de la interrupcion habilitada por el TIM4->DIER
+  NVIC->ISER[1]|= (1<<8);  // NVIC para la interrupcion habilitada por el PC13.
+  NVIC->ISER[0]|= (1<<10); //NVIC para la interrupcion habilitada por PB4.
+  NVIC->ISER[0]|= (1<<18); //NVIC para la interrupcion habilitada por el EOCIE.
+  NVIC->ISER[0]|= (1<<29); //NVIC de la interrupcion habilitada por el TIM3->DIER
+  NVIC->ISER[0]|= (1<<30); //NVIC de la interrupcion habilitada por el TIM4->DIER
 
 
   /* USER CODE END 2 */
@@ -574,68 +626,77 @@ int main(void)
   /* USER CODE BEGIN WHILE */
    change_mode=0;
     mode=AUTOMATICO;
-    printf("AUTOMATIC MODE BY DEFAULT\r\n");
+    uart_print("AUTOMATIC MODE BY DEFAULT\r\n");
     led_verde_on();
     pulsador_2=0;
     counter_medidas=-1;
 
     while (1){
 
-  	    if(change_mode!=0){ //Cambiando el modo (Automático/Manual)
+        if(change_mode!=0){ //Cambiando el modo (Automático/Manual)
 
-  	    	change_mode=0;
+          change_mode=0;
 
-  	    	if(mode==MANUAL){
-  	    		led_verde_on();
-  	    		mode=AUTOMATICO;
-  	    		printf("AUTOMATIC MODE ACTIVATED\r\n");
-  	    	}
-  	    	else{
-  	    		led_verde_off();
-  	    		mode=MANUAL;
-  	    		printf("MANUAL MODE ACTIVATED\r\n");
-  	    	}
+          if(mode==MANUAL){
+            led_verde_on();
+            mode=AUTOMATICO;
+            uart_print("AUTOMATIC MODE ACTIVATED\r\n");
+          }
+          else{
+            led_verde_off();
+            mode=MANUAL;
+            uart_print("MANUAL MODE ACTIVATED\r\n");
+          }
 
-  	    }
+        }
 
-  	    if(mode==AUTOMATICO){
+        if(mode==AUTOMATICO){
 
-  	    	if((ADC1->CR2 & 2)!=0) //Si el modo continuo esta activado, lo desactivamos para que no siga convirtiendo el voltaje del potenciometro, ya que no nos sirve
-  	    		ADC1->CR2 &= ~2;
+          if((ADC1->CR2 & 2)!=0) //Si el modo continuo esta activado, lo desactivamos para que no siga convirtiendo el voltaje del potenciometro, ya que no nos sirve
+            ADC1->CR2 &= ~2;
 
-  	    	if((pulsador_2!=0) || ((counter_medidas >= 0)&&(counter_medidas < 5))){
-  	    		pulsador_2=0;
+          if((pulsador_2!=0) || ((counter_medidas >= 0)&&(counter_medidas < 5))){
+            pulsador_2=0;
 
-  	    		if(counter_medidas==0)
-  	    			printf("Executing sequence of distance measurements\r\n");
+            if(counter_medidas==0) {
 
+              //Se inicializa las distancias a -1 para el manejo en caso de que no se haya tomado una o varias de ellas
+              distancias_auto[0] = -1;
+              distancias_auto[1] = -1;
+              distancias_auto[2] = -1;
+              distancias_auto[3] = -1;
+              distancias_auto[4] = -1;
 
-  	    		medir_distancia_auto();
+              uart_print("Executing sequence of distance measurements\r\n");
 
-  	    	}
-  	    	conversor_tiempo_distancia();
+            }
 
-  	    	resultado_medidas_LED();
+            medir_distancia_auto();
 
-  	    }
+          }
+          conversor_tiempo_distancia();
 
-  	    else if(mode==MANUAL){
+          resultado_medidas_LED();
 
-  	    	if((ADC1->CR2 & 2)==0){//Si el modo continuo esta desactivado, lo activamos para que siga convirtiendo el voltaje del potenciometro
-  	    		ADC1->CR2 |= 2;
-  	    		ADC1->CR2 |= (1<<30);
-  	    	}
+        }
 
-  	    	if(pulsador_2!=0)
-  	    		medir_distancia_manual();
+        else if(mode==MANUAL){
 
-  	    	conversor_tiempo_distancia();
+          if((ADC1->CR2 & 2)==0){//Si el modo continuo esta desactivado, lo activamos para que siga convirtiendo el voltaje del potenciometro
+            ADC1->CR2 |= 2;
+            ADC1->CR2 |= (1<<30);
+          }
 
-  	    	resultado_medidas_LED();
+          if(pulsador_2!=0)
+            medir_distancia_manual();
 
-  	    	medir_posicion();
+          conversor_tiempo_distancia();
 
-  	    }
+          resultado_medidas_LED();
+
+          medir_posicion();
+
+        }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -982,3 +1043,4 @@ void assert_failed(uint8_t *file, uint32_t line)
   /* USER CODE END 6 */
 }
 #endif /* USE_FULL_ASSERT */
+
